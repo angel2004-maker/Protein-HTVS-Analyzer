@@ -364,79 +364,78 @@ with tab1:
             st.markdown('<div style="background-color:#fff3cd;padding:12px;border-radius:5px;color:#856404;font-weight:bold">⚠️ 疏水氨基酸比例偏高（>38%），存在一定聚沉风险。建议进行优化或增加分子伴侣共表达。</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div style="background-color:#d4edda;padding:12px;border-radius:5px;color:#155724;font-weight:bold">✅ 该序列理化性质良好，表面亲水性合格，适合作为候选蛋白药物进入大肠杆菌表达等下游湿实验验证。</div>', unsafe_allow_html=True)
-
-        # ============================================================
-        # 高通量批量筛查
-        # ============================================================
-        st.divider()
-        st.subheader('高通量理化性质批量筛查')
-        st.caption('前置漏斗：批量评估多条序列，筛选出值得提交 AlphaFold3 进行结构预测的候选序列')
-
-        batch_fasta = st.file_uploader('上传包含多条序列的 .fasta 文件（用于批量筛查）', type=['fasta', 'fa'], key='batch_fasta')
-
-        if batch_fasta:
-            batch_text = batch_fasta.read().decode('utf-8')
-            batch_records = list(SeqIO.parse(io.StringIO(batch_text), 'fasta'))
-
-            if len(batch_records) < 2:
-                st.warning('批量筛查至少需要 2 条序列')
-            else:
-                st.info(f'正在分析 {len(batch_records)} 条序列，请稍候...')
-
-                batch_results = []
-                for record in batch_records:
-                    seq = str(record.seq).upper()
-                    seq_id = record.id if record.id else f'seq_{len(batch_results)+1}'
-                    counts = classify_amino_acids(seq)
-                    total = sum(counts.values()) if counts else len(seq)
-                    hyd_ratios = counts['疏水氨基酸'] / total if total > 0 else 0
-
-                    gravys = calculate_kd_plot(seq, window=len(seq))
-                    gravys = [s for s in gravys if s != 0]
-                    gravy = sum(gravys) / len(gravys) if gravys else 0
-
-                    status = '❌ 聚沉淘汰' if hyd_ratios > 0.45 else '✅ 理化合格'
-                    batch_results.append({
-                        '序列ID': seq_id[:40],
-                        '长度': len(seq),
-                        '疏水占比(%)': round(hyd_ratios * 100, 2),
-                        'GRAVY得分': round(gravy, 4),
-                        '风控判定': status
-                    })
-
-                df = pd.DataFrame(batch_results)
-
-                st.markdown('**序列排行榜**')
-
-                # 使用纯 HTML 表格（避免 jinja2 版本依赖问题）
-                html_table = df.to_html(index=False, escape=False, classes='styled-table')
-                styled_html = f'<style>.styled-table{{border-collapse:collapse;width:100%;font-size:14px}}.styled-table th,.styled-table td{{padding:8px;border-bottom:1px solid #ddd;text-align:center}}.styled-table tr:nth-child(even){{background:#f9f9f9}}</style>' + html_table.replace(
-                    '<td>❌ 聚沉淘汰</td>', '<td style="background-color:#ffcccc;color:#cc0000;font-weight:bold">❌ 聚沉淘汰</td>'
-                ).replace(
-                    '<td>✅ 理化合格</td>', '<td style="background-color:#d4edda;color:#155724;font-weight:bold">✅ 理化合格</td>'
-                )
-                st.markdown(styled_html, unsafe_allow_html=True)
-
-                pass_indices = [i for i, row in enumerate(batch_results) if '合格' in row['风控判定']]
-                pass_records = [batch_records[i] for i in pass_indices]
-
-                col_pass, col_dl = st.columns([1, 1])
-                with col_pass:
-                    st.metric('理化合格候选数', len(pass_records), help='疏水占比 ≤45% 的序列')
-                with col_dl:
-                    st.metric('待淘汰序列数', len(batch_records) - len(pass_records))
-
-                if pass_records:
-                    pass_fasta = '\n'.join([f'>{r.id}\n{str(r.seq)}' for r in pass_records])
-                    st.download_button(
-                        label='⬇️ 下载理化合格候选池 (.fasta)',
-                        data=pass_fasta,
-                        file_name='pass_candidates.fasta',
-                        mime='text/plain',
-                        key='dl_pass_fasta'
-                    )
     else:
         st.info('请上传 FASTA 文件或直接输入序列开始分析')
+
+    # ============================================================
+    # 高通量批量筛查（与单序列分析并列，独立运行）
+    # ============================================================
+    st.divider()
+    st.subheader('高通量理化性质批量筛查')
+    st.caption('前置漏斗：批量评估多条序列，筛选出值得提交 AlphaFold3 进行结构预测的候选序列')
+
+    batch_fasta = st.file_uploader('上传包含多条序列的 .fasta 文件（用于批量筛查）', type=['fasta', 'fa'], key='batch_fasta')
+
+    if batch_fasta:
+        batch_text = batch_fasta.read().decode('utf-8')
+        batch_records = list(SeqIO.parse(io.StringIO(batch_text), 'fasta'))
+
+        if len(batch_records) < 2:
+            st.warning('批量筛查至少需要 2 条序列')
+        else:
+            st.info(f'正在分析 {len(batch_records)} 条序列，请稍候...')
+
+            batch_results = []
+            for record in batch_records:
+                seq = str(record.seq).upper()
+                seq_id = record.id if record.id else f'seq_{len(batch_results)+1}'
+                counts = classify_amino_acids(seq)
+                total = sum(counts.values()) if counts else len(seq)
+                hyd_ratios = counts['疏水氨基酸'] / total if total > 0 else 0
+
+                gravys = calculate_kd_plot(seq, window=len(seq))
+                gravys = [s for s in gravys if s != 0]
+                gravy = sum(gravys) / len(gravys) if gravys else 0
+
+                status = '❌ 聚沉淘汰' if hyd_ratios > 0.45 else '✅ 理化合格'
+                batch_results.append({
+                    '序列ID': seq_id[:40],
+                    '长度': len(seq),
+                    '疏水占比(%)': round(hyd_ratios * 100, 2),
+                    'GRAVY得分': round(gravy, 4),
+                    '风控判定': status
+                })
+
+            df = pd.DataFrame(batch_results)
+
+            st.markdown('**序列排行榜**')
+
+            html_table = df.to_html(index=False, escape=False, classes='styled-table')
+            styled_html = f'<style>.styled-table{{border-collapse:collapse;width:100%;font-size:14px}}.styled-table th,.styled-table td{{padding:8px;border-bottom:1px solid #ddd;text-align:center}}.styled-table tr:nth-child(even){{background:#f9f9f9}}</style>' + html_table.replace(
+                '<td>❌ 聚沉淘汰</td>', '<td style="background-color:#ffcccc;color:#cc0000;font-weight:bold">❌ 聚沉淘汰</td>'
+            ).replace(
+                '<td>✅ 理化合格</td>', '<td style="background-color:#d4edda;color:#155724;font-weight:bold">✅ 理化合格</td>'
+            )
+            st.markdown(styled_html, unsafe_allow_html=True)
+
+            pass_indices = [i for i, row in enumerate(batch_results) if '合格' in row['风控判定']]
+            pass_records = [batch_records[i] for i in pass_indices]
+
+            col_pass, col_dl = st.columns([1, 1])
+            with col_pass:
+                st.metric('理化合格候选数', len(pass_records), help='疏水占比 ≤45% 的序列')
+            with col_dl:
+                st.metric('待淘汰序列数', len(batch_records) - len(pass_records))
+
+            if pass_records:
+                pass_fasta = '\n'.join([f'>{r.id}\n{str(r.seq)}' for r in pass_records])
+                st.download_button(
+                    label='⬇️ 下载理化合格候选池 (.fasta)',
+                    data=pass_fasta,
+                    file_name='pass_candidates.fasta',
+                    mime='text/plain',
+                    key='dl_pass_fasta'
+                )
 
 # ============================================================
 # 中级看板
